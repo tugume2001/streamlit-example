@@ -1,38 +1,94 @@
-from collections import namedtuple
-import altair as alt
-import math
-import pandas as pd
 import streamlit as st
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import LearningRateScheduler
+from tensorflow.keras.models import model_from_json
 
-"""
-# Welcome to Streamlit!
+def generate_model():
+    # Set the path to your dataset directory
+    dataset_dir = 'C:\\Users\\Tulyahikayo Tevin\\Desktop\\TEVINS DOGS'
 
-Edit `/streamlit_app.py` to customize this app to your heart's desire :heart:
+    # Define the input shape of the images and the number of classes (dog breeds)
+    input_shape = (200, 200, 3)
+    num_classes = 3
 
-If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
-forums](https://discuss.streamlit.io).
+    # Set the batch size and number of epochs for training
+    batch_size = 32
+    epochs = 20
 
-In the meantime, below is an example of what you can do with just a few lines of code:
-"""
+    # Create an instance of the ImageDataGenerator for data augmentation and preprocessing
+    datagen = ImageDataGenerator(
+        rescale=1.0 / 255.0,  # Normalize pixel values between 0 and 1
+        validation_split=0.2  # Split the dataset into training and validation sets
+    )
 
+    # Load the training set images
+    train_generator = datagen.flow_from_directory(
+        dataset_dir,
+        target_size=input_shape[:2],
+        batch_size=batch_size,
+        class_mode='categorical',
+        subset='training'
+    )
 
-with st.echo(code_location='below'):
-    total_points = st.slider("Number of points in spiral", 1, 5000, 2000)
-    num_turns = st.slider("Number of turns in spiral", 1, 100, 9)
+    # Load the validation set images
+    validation_generator = datagen.flow_from_directory(
+        dataset_dir,
+        target_size=input_shape[:2],
+        batch_size=batch_size,
+        class_mode='categorical',
+        subset='validation'
+    )
 
-    Point = namedtuple('Point', 'x y')
-    data = []
+    # Create the model architecture
+    model = tf.keras.models.Sequential([
+        tf.keras.layers.Flatten(input_shape=(200, 200, 3)),
+        tf.keras.layers.Dense(2048, activation=tf.nn.relu),
+        tf.keras.layers.Dense(1024, activation=tf.nn.relu),
+        tf.keras.layers.Dense(512, activation=tf.nn.relu),
+        tf.keras.layers.Dense(256, activation=tf.nn.relu),
+        tf.keras.layers.Dense(128, activation=tf.nn.relu),
+        tf.keras.layers.Dense(64, activation=tf.nn.relu),
+        tf.keras.layers.Dense(32, activation=tf.nn.relu),
+        tf.keras.layers.Dense(num_classes, activation=tf.nn.softmax)
+    ])
 
-    points_per_turn = total_points / num_turns
+    # Compile the model
+    model.compile(optimizer=tf.keras.optimizers.Adam(), loss='categorical_crossentropy', metrics=['accuracy'])
 
-    for curr_point_num in range(total_points):
-        curr_turn, i = divmod(curr_point_num, points_per_turn)
-        angle = (curr_turn + 1) * 2 * math.pi * i / points_per_turn
-        radius = curr_point_num / total_points
-        x = radius * math.cos(angle)
-        y = radius * math.sin(angle)
-        data.append(Point(x, y))
+    # Set the number of steps per epoch
+    train_steps_per_epoch = train_generator.samples // batch_size
+    validation_steps = validation_generator.samples // batch_size
 
-    st.altair_chart(alt.Chart(pd.DataFrame(data), height=500, width=500)
-        .mark_circle(color='#0068c9', opacity=0.5)
-        .encode(x='x:Q', y='y:Q'))
+    # Define a learning rate schedule (optional)
+    def schedule(epoch, lr):
+        if epoch < 50:
+            return lr
+        else:
+            return lr * tf.math.exp(-0.1)
+
+    lr_scheduler = LearningRateScheduler(schedule)
+
+    # Train the model
+    history = model.fit(
+        train_generator,
+        steps_per_epoch=train_steps_per_epoch,
+        epochs=epochs,
+        validation_data=validation_generator,
+        validation_steps=validation_steps,
+        callbacks=[lr_scheduler]
+    )
+
+    # Save the model as .json and .h5 files
+    model_json = model.to_json()
+    with open("model.json", "w") as json_file:
+        json_file.write(model_json)
+    model.save_weights("model.h5")
+
+    # Optionally, you can also save the model architecture and weights separately
+    model.save("model_full.h5")  # Save the model architecture and weights together
+
+    
+
+# Streamlit app code
+
